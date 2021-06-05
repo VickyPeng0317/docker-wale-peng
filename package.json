@@ -1,0 +1,29 @@
+{
+  "name": "docker-wale-peng",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon --ignore peng/ main.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cyut10430004/docker-wale-peng.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/cyut10430004/docker-wale-peng/issues"
+  },
+  "homepage": "https://github.com/cyut10430004/docker-wale-peng#readme",
+  "dependencies": {
+    "glob": "^7.1.7",
+    "moment": "^2.29.1",
+    "rxjs": "^7.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.7"
+  }
+}
