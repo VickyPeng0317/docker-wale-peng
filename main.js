@@ -53,6 +53,23 @@ function getAllDockerFileInfo(allDockerFilePath) {
 }
 
 /**
+ * 讀取目錄內的所有 package.json 內容
+ */
+function getAllPackageJson(infoList) {
+    const { promises: { readFile } } = fs;
+    const readPackagePromiseList = infoList.map(info => readFile(`${info.folderPath}/package.json`));
+    return from(Promise.all(readPackagePromiseList)).pipe(
+        map(packageStringList => packageStringList.map(ps => JSON.parse(ps))),
+        map(packageJsonList => {
+            infoList = infoList.map((info, index) => (
+                { ...info, packageJson: packageJsonList[index] }
+            ));
+            return infoList;
+        })
+    );
+}
+
+/**
  * 取得所有 os 套件
  */
 function getOsPackageList(infoList) {
@@ -134,9 +151,9 @@ function generatePengCoreImage(dockerFilePath, imageName, infoList) {
 }
 
 /**
- * 產出 Wale App image
+ * 產出 Peng App image
  */
-function generateWaleAppImage(CORE_IMAGE_NAME, infoList) {
+function generatePengAppImage(CORE_IMAGE_NAME, infoList) {
     // 定義產出 app image 方法
     const getAppImageFromCore = (content => {
         const from = `FROM ${CORE_IMAGE_NAME}`
@@ -148,61 +165,56 @@ function generateWaleAppImage(CORE_IMAGE_NAME, infoList) {
     // 加入新欄位到 info list
     const newInfoList = infoList.map(info => {
         const { fileContent, folderPath, filePath } = info;
-        const waleDockerFileName = 'WaleDockerfile';
-        const waleImagePath = folderPath + waleDockerFileName;
-        const waleImageContent = getAppImageFromCore(fileContent);
+        const pengDockerFileName = 'PengDockerfile';
+        const pengImagePath = folderPath + pengDockerFileName;
+        const pengImageContent = getAppImageFromCore(fileContent);
         // image name
         const pathLevel = filePath.toString().split('\\');
         const projectName = pathLevel[pathLevel.length - 2];
-        const waleImageName = `wale/${projectName}`;
-        return { ...info, waleImagePath, waleImageContent, waleImageName, waleDockerFileName };
+        const pengImageName = `peng/${projectName}`;
+        return { ...info, pengImagePath, pengImageContent, pengImageName, pengDockerFileName };
     });
     // 產出檔案 
     const { promises: { writeFile } } = fs;
-    const promiseList = newInfoList.map(({ waleImagePath, waleImageContent }) =>
-        writeFile(waleImagePath, waleImageContent)
+    const promiseList = newInfoList.map(({ pengImagePath, pengImageContent }) =>
+        writeFile(pengImagePath, pengImageContent)
     );
     return from(Promise.all(promiseList)).pipe(
         map(() => newInfoList)
     );
 }
 
-function buildWaleCoreImage(dockerFilePath, imageName) {
-    console.log('Build core start: ' + moment().format('yyyy-MM-DD HH:mm:ss'));
-    return from(Promise.all([
-        runCmd(`cd ${dockerFilePath} & docker build -t ${imageName} .`),
-        runCmd(`docker image ls`),
-    ])).pipe(
-        tap(() => console.log('Build core end: ' + moment().format('yyyy-MM-DD HH:mm:ss')))
-    );
+function getAllBuildImageBat(coreFilePath, coreImageName, infoList) {
+    const coreBat = {
+        name: 'peng-core',
+        commandStr: `cd ${coreFilePath} & docker build -t ${coreImageName} .`,
+        command: [
+            `cd ${coreFilePath}`,
+            `docker build -t ${coreImageName} .`
+        ]
+    };
+    const appImageBatList = infoList.map(info => {
+        const { folderPath, pengDockerFileName, pengImageName, packageJson } = info;
+        return {
+            name: packageJson.name,
+            commandStr: `cd ${folderPath} & docker build --no-cache -t ${pengImageName} -f ${pengDockerFileName} .`,
+            command: [
+                `cd ${folderPath}`,
+                `docker build --no-cache -t ${pengImageName} -f ${pengDockerFileName} .`
+            ]
+        };
+    });
+    return of([coreBat, ...appImageBatList]);
 }
 
-function buildWaleAppImage(infoList) {
-    console.log('Build app start: ' + moment().format('yyyy-MM-DD HH:mm:ss'));
-    const promiseList = infoList.map(info => {
-        const { folderPath, waleDockerFileName, waleImageName } = info;
-        return from(runCmd(`cd ${folderPath} & docker build --no-cache -t ${waleImageName} -f ${waleDockerFileName} .`).then((a, b) => {
-            console.log('a', a);
-            console.log('b', b);
-        })).pipe(delay());
+function generateBuildImageBat(savePath, batList) {
+    const { promises: { writeFile } } = fs;
+    const promiseList = batList.map(({ name, command }) => {
+        const batContent = command.reduce((res, cmd) => `${res}\n${cmd}`, '') + '\npause';
+        writeFile(`${savePath}/${name}.bat`, batContent)
     });
     return from(Promise.all(promiseList)).pipe(
-        tap(() => console.log('Build app end: ' + moment().format('yyyy-MM-DD HH:mm:ss')))
-    );
-    // docker build -t mysuperimage -f MyDockerfile .
-}
-
-function getAllPackageJson(infoList) {
-    const { promises: { readFile } } = fs;
-    const readPackagePromiseList = infoList.map(info => readFile(`${info.folderPath}/package.json`));
-    return from(Promise.all(readPackagePromiseList)).pipe(
-        map(packageStringList => packageStringList.map(ps => JSON.parse(ps))),
-        map(packageJsonList => {
-            infoList = infoList.map((info, index) => (
-                { ...info, packageJson: packageJsonList[index] }
-            ));
-            return infoList;
-        })
+        map(() => batList)
     );
 }
 
@@ -216,14 +228,18 @@ function PENG() {
     const PROJECTS_PATH = 'E:/nutc-project/angular';
     const CORE_FILE_PATH = process.cwd() + '/peng';
     const CORE_IMAGE_NAME = 'peng/core';
+    const BUILD_IMAGE_BAT_PATH = 'build-image-bat';
     of(PROJECTS_PATH).pipe(
         switchMap(projectsPath => getAllDockerFilePath(projectsPath)),
         switchMap(allFilePath => getAllDockerFileInfo(allFilePath)),
         switchMap(infoList => getAllPackageJson(infoList)),
         switchMap(infoList => generatePengCoreImage(CORE_FILE_PATH, CORE_IMAGE_NAME, infoList)),
-        switchMap(infoList => generatePengCorePackageJson(CORE_FILE_PATH, infoList))
-    ).subscribe(infoList => {
-        // console.log(JSON.stringify(infoList[0].packageJson));
+        switchMap(infoList => generatePengCorePackageJson(CORE_FILE_PATH, infoList)),
+        switchMap(infoList => generatePengAppImage(CORE_IMAGE_NAME, infoList)),
+        switchMap(infoList => getAllBuildImageBat(CORE_FILE_PATH, CORE_IMAGE_NAME, infoList)),
+        switchMap(batList => generateBuildImageBat(BUILD_IMAGE_BAT_PATH, batList))
+    ).subscribe(res => {
+        console.log(res);
     });
 }
 
